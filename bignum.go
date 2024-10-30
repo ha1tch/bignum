@@ -1,10 +1,9 @@
-package main
+package bignum
 
 import (
 	"fmt"
 	"math"
 	"math/big"
-	"strconv"
 	"strings"
 )
 
@@ -50,12 +49,13 @@ func (e BigNumberError) Error() string {
 
 // BigNumber represents a large integer with fixed-point arithmetic.
 type BigNumber struct {
-	positive *big.Int // Stores the positive part
-	negative *big.Int // Stores the negative part
+	positive  *big.Int // Stores the positive part
+	negative  *big.Int // Stores the negative part
 	precision uint     // Number of decimal places
 	rounding  RoundingMode
 	isInf     bool     // Flag to indicate if the number is infinity
 	isNan     bool     // Flag to indicate if the number is NaN
+	value     *big.Int // Stores the actual big integer value
 }
 
 // NewBigNumber creates a new BigNumber from a string representation.
@@ -124,6 +124,9 @@ func NewBigNumber(str string, precision uint, rounding RoundingMode) (*BigNumber
 		bn.positive = decimalBigInt
 	}
 
+	// Combine positive and negative parts with the sign.
+	bn.value = new(big.Int).Sub(bn.positive, bn.negative)
+
 	return bn, nil
 }
 
@@ -170,6 +173,9 @@ func (bn *BigNumber) Add(other *BigNumber) (*BigNumber, error) {
 		result.positive, result.negative = result.negative, result.positive
 	}
 
+	// Update the 'value' field based on the sign
+	result.value = new(big.Int).Sub(result.positive, result.negative)
+
 	return result, nil
 }
 
@@ -198,6 +204,9 @@ func (bn *BigNumber) Subtract(other *BigNumber) (*BigNumber, error) {
 		result.positive, result.negative = result.negative, result.positive
 	}
 
+	// Update the 'value' field based on the sign
+	result.value = new(big.Int).Sub(result.positive, result.negative)
+
 	return result, nil
 }
 
@@ -225,6 +234,9 @@ func (bn *BigNumber) Multiply(other *BigNumber) (*BigNumber, error) {
 		// If negative part is larger, swap
 		result.positive, result.negative = result.negative, result.positive
 	}
+
+	// Update the 'value' field based on the sign
+	result.value = new(big.Int).Sub(result.positive, result.negative)
 
 	return result, nil
 }
@@ -255,12 +267,12 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 	quotientNegative := new(big.Int).Div(scaledDividendNegative, scaledDivisorNegative)
 
 	// Create new BigNumber for the quotient.
-	quotient := NewBigNumber("", bn.precision, bn.rounding)
+	quotient, _ := NewBigNumber("", bn.precision, bn.rounding)
 	quotient.positive = quotientPositive
 	quotient.negative = quotientNegative
 
 	// Rounding after division
-	quotient, err := bn.applyRounding(quotient, bn.precision)
+	quotient, err := bn.applyRounding(bn.precision)
 	if err != nil {
 		return nil, err
 	}
@@ -270,6 +282,9 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 		// If negative part is larger, swap
 		quotient.positive, quotient.negative = quotient.negative, quotient.positive
 	}
+
+	// Update the 'value' field based on the sign
+	quotient.value = new(big.Int).Sub(quotient.positive, quotient.negative)
 
 	return quotient, nil
 }
@@ -300,9 +315,12 @@ func (bn *BigNumber) Modulo(other *BigNumber) (*BigNumber, error) {
 	remainderNegative := new(big.Int).Mod(scaledDividendNegative, scaledDivisorNegative)
 
 	// Create new BigNumber for the remainder.
-	remainder := NewBigNumber("", bn.precision, bn.rounding)
+	remainder, _ := NewBigNumber("", bn.precision, bn.rounding)
 	remainder.positive = remainderPositive
 	remainder.negative = remainderNegative
+
+	// Update the 'value' field based on the sign
+	remainder.value = new(big.Int).Sub(remainder.positive, remainder.negative)
 
 	return remainder, nil
 }
@@ -323,6 +341,9 @@ func (bn *BigNumber) Exponentiate(exponent int64) (*BigNumber, error) {
 		// If negative part is larger, swap
 		result.positive, result.negative = result.negative, result.positive
 	}
+
+	// Update the 'value' field based on the sign
+	result.value = new(big.Int).Sub(result.positive, result.negative)
 
 	return result, nil
 }
@@ -345,13 +366,14 @@ func (bn *BigNumber) SquareRoot() (*BigNumber, error) {
 	bigFloat.SetInt(bn.value)
 
 	// Calculate square root.
-	sqrtBigFloat, ok := bigFloat.Sqrt(bigFloat)
-	if !ok {
-		return nil, BigNumberError{ErrorType: UndefinedOperationError, Message: "square root calculation failed"}
-	}
+	sqrtBigFloat := bigFloat.Sqrt(bigFloat) // sqrtBigFloat is of type *big.Float
 
-	// Convert back to BigNumber.
-	return NewBigNumber(sqrtBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	// Convert back to BigNumber
+	sqrtBn, err := NewBigNumber(sqrtBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	if err != nil {
+		return nil, err
+	}
+	return sqrtBn, nil // Return the new BigNumber
 }
 
 // Sine calculates the sine of a BigNumber (assumes radians).
@@ -364,8 +386,16 @@ func (bn *BigNumber) Sine() (*BigNumber, error) {
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
-	sineBigFloat, _ := bigFloat.Sin(bigFloat)
-	return NewBigNumber(sineBigFloat.Text('g', -1), bn.precision, bn.rounding)
+
+	// Calculate sine
+	sineBigFloat, _ := bigFloat.Sin(bigFloat) // sineBigFloat is of type *big.Float
+
+	// Convert back to BigNumber
+	sineBn, err := NewBigNumber(sineBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	if err != nil {
+		return nil, err
+	}
+	return sineBn, nil // Return the new BigNumber
 }
 
 // Cosine calculates the cosine of a BigNumber (assumes radians).
@@ -378,8 +408,16 @@ func (bn *BigNumber) Cosine() (*BigNumber, error) {
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
-	cosineBigFloat, _ := bigFloat.Cos(bigFloat)
-	return NewBigNumber(cosineBigFloat.Text('g', -1), bn.precision, bn.rounding)
+
+	// Calculate cosine
+	cosineBigFloat, _ := bigFloat.Cos(bigFloat) // cosineBigFloat is of type *big.Float
+
+	// Convert back to BigNumber
+	cosineBn, err := NewBigNumber(cosineBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	if err != nil {
+		return nil, err
+	}
+	return cosineBn, nil // Return the new BigNumber
 }
 
 // Tangent calculates the tangent of a BigNumber (assumes radians).
@@ -392,8 +430,16 @@ func (bn *BigNumber) Tangent() (*BigNumber, error) {
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
-	tangentBigFloat, _ := bigFloat.Tan(bigFloat)
-	return NewBigNumber(tangentBigFloat.Text('g', -1), bn.precision, bn.rounding)
+
+	// Calculate tangent
+	tangentBigFloat, _ := bigFloat.Tan(bigFloat) // tangentBigFloat is of type *big.Float
+
+	// Convert back to BigNumber
+	tangentBn, err := NewBigNumber(tangentBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	if err != nil {
+		return nil, err
+	}
+	return tangentBn, nil // Return the new BigNumber
 }
 
 // Logarithm calculates the natural logarithm (base e) of a BigNumber.
@@ -410,8 +456,16 @@ func (bn *BigNumber) Logarithm() (*BigNumber, error) {
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
-	logBigFloat, _ := bigFloat.Log(bigFloat)
-	return NewBigNumber(logBigFloat.Text('g', -1), bn.precision, bn.rounding)
+
+	// Calculate logarithm
+	logBigFloat, _ := bigFloat.Log(bigFloat) // logBigFloat is of type *big.Float
+
+	// Convert back to BigNumber
+	logBn, err := NewBigNumber(logBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	if err != nil {
+		return nil, err
+	}
+	return logBn, nil // Return the new BigNumber
 }
 
 // Exponential calculates the exponential (base e) of a BigNumber.
@@ -424,8 +478,16 @@ func (bn *BigNumber) Exponential() (*BigNumber, error) {
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
-	expBigFloat, _ := bigFloat.Exp(bigFloat)
-	return NewBigNumber(expBigFloat.Text('g', -1), bn.precision, bn.rounding)
+
+	// Calculate exponential
+	expBigFloat, _ := bigFloat.Exp(bigFloat) // expBigFloat is of type *big.Float
+
+	// Convert back to BigNumber
+	expBn, err := NewBigNumber(expBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	if err != nil {
+		return nil, err
+	}
+	return expBn, nil // Return the new BigNumber
 }
 
 // AbsoluteValue returns the absolute value of a BigNumber.
@@ -489,19 +551,14 @@ func (bn *BigNumber) ScientificNotation() string {
 	bigFloat.SetInt(bn.value)
 
 	// Get scientific notation representation
-	scientificStr, _ := bigFloat.Text('e', -1)
+	scientificStr, _ := bigFloat.Text('e', -1) // scientificStr is of type string
 
-	// Adjust for precision
-	parts := strings.Split(scientificStr, "e")
-	if len(parts) > 1 {
-		// Add decimal point
-		parts[0] = parts[0][:1] + "." + parts[0][1:]
-		// Pad with zeros if necessary
-		parts[0] = fmt.Sprintf("%.10s", parts[0])
-		// Add the "e" and exponent
-		scientificStr = parts[0] + "e" + parts[1]
+	// Convert back to BigNumber (not necessary, but following the pattern)
+	sciBn, err := NewBigNumber(scientificStr, bn.precision, bn.rounding)
+	if err != nil {
+		return "" // Handle error as appropriate
 	}
-	return scientificStr
+	return sciBn.String() // Return the new BigNumber
 }
 
 // toFloat attempts to convert the BigNumber to a float64 value.
@@ -569,14 +626,14 @@ func (bn *BigNumber) GreaterOrEqual(other *BigNumber) bool {
 }
 
 // applyRounding applies rounding to a BigNumber based on the specified rounding mode and precision.
-func (bn *BigNumber) applyRounding(number *BigNumber, precision uint) (*BigNumber, error) {
-	if precision == number.precision {
-		return number, nil
+func (bn *BigNumber) applyRounding(precision uint) (*BigNumber, error) {
+	if precision == bn.precision {
+		return bn, nil
 	}
 	result := &BigNumber{precision: precision, rounding: bn.rounding}
 
 	scaleFactor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(precision)), nil)
-	scaledValue := new(big.Int).Mul(number.value, scaleFactor)
+	scaledValue := new(big.Int).Mul(bn.value, scaleFactor)
 
 	switch bn.rounding {
 	case RoundUp:
@@ -612,163 +669,10 @@ func (bn *BigNumber) Round(precision uint) *BigNumber {
 		return bn
 	}
 
-	result, err := bn.applyRounding(bn, precision)
+	result, err := bn.applyRounding(precision)
 	if err != nil {
 		return nil // Handle error as appropriate
 	}
 
 	return result
-}
-
-func main() {
-	// Example usage:
-	bn1, err := NewBigNumber("1234567890.1234", 2, RoundToNearest)
-	if err != nil {
-		fmt.Println("Error creating BigNumber:", err)
-		return
-	}
-
-	bn2, err := NewBigNumber("9876543210.3456", 2, RoundToNearest)
-	if err != nil {
-		fmt.Println("Error creating BigNumber:", err)
-		return
-	}
-
-	infBn, err := NewBigNumber("inf", 2, RoundToNearest)
-	if err != nil {
-		fmt.Println("Error creating BigNumber:", err)
-		return
-	}
-
-	nanBn, err := NewBigNumber("nan", 2, RoundToNearest)
-	if err != nil {
-		fmt.Println("Error creating BigNumber:", err)
-		return
-	}
-
-	fmt.Println("bn1:", bn1.String())          // Output: bn1: 1234567890.12
-	fmt.Println("bn2:", bn2.String())          // Output: bn2: 9876543210.35
-	fmt.Println("infBn:", infBn.String())     // Output: infBn: Infinity
-	fmt.Println("nanBn:", nanBn.String())     // Output: nanBn: NaN
-
-	sum, err := bn1.Add(bn2)
-	if err != nil {
-		fmt.Println("Error during addition:", err)
-	} else {
-		fmt.Println("Sum:", sum.String()) // Output: Sum: 11111111100.47
-	}
-
-	diff, err := bn1.Subtract(bn2)
-	if err != nil {
-		fmt.Println("Error during subtraction:", err)
-	} else {
-		fmt.Println("Difference:", diff.String()) // Output: Difference: -7630864320.23
-	}
-
-	product, err := bn1.Multiply(bn2)
-	if err != nil {
-		fmt.Println("Error during multiplication:", err)
-	} else {
-		fmt.Println("Product:", product.String()) // Output: Product: 12193263111263526400.43
-	}
-
-	quotient, err := bn1.Divide(bn2)
-	if err != nil {
-		fmt.Println("Error during division:", err)
-	} else {
-		fmt.Println("Quotient:", quotient.String()) // Output: Quotient: 0.12
-	}
-
-	remainder, err := bn1.Modulo(bn2)
-	if err != nil {
-		fmt.Println("Error during modulo operation:", err)
-	} else {
-		fmt.Println("Remainder:", remainder.String()) // Output: Remainder: 1234567890.12
-	}
-
-	// Exponentiation
-	exponent := int64(2)
-	bn1Squared, err := bn1.Exponentiate(exponent)
-	if err != nil {
-		fmt.Println("Error during exponentiation:", err)
-	} else {
-		fmt.Println("bn1 Squared:", bn1Squared.String()) // Output: bn1 Squared: 1524157875019052100.00
-	}
-
-	// Square root
-	sqrt, err := bn1.SquareRoot()
-	if err != nil {
-		fmt.Println("Error during square root calculation:", err)
-	} else {
-		fmt.Println("Square root of bn1:", sqrt.String()) // Output: Square root of bn1: 35136.50
-	}
-
-	// Sine
-	sine, err := bn1.Sine()
-	if err != nil {
-		fmt.Println("Error during sine calculation:", err)
-	} else {
-		fmt.Println("Sine of bn1:", sine.String()) // Output: Sine of bn1: 0.82
-	}
-
-	// Cosine
-	cosine, err := bn1.Cosine()
-	if err != nil {
-		fmt.Println("Error during cosine calculation:", err)
-	} else {
-		fmt.Println("Cosine of bn1:", cosine.String()) // Output: Cosine of bn1: 0.57
-	}
-
-	// Tangent
-	tangent, err := bn1.Tangent()
-	if err != nil {
-		fmt.Println("Error during tangent calculation:", err)
-	} else {
-		fmt.Println("Tangent of bn1:", tangent.String()) // Output: Tangent of bn1: 1.43
-	}
-
-	// Logarithm
-	logarithm, err := bn1.Logarithm()
-	if err != nil {
-		fmt.Println("Error during logarithm calculation:", err)
-	} else {
-		fmt.Println("Logarithm of bn1:", logarithm.String()) // Output: Logarithm of bn1: 26.87
-	}
-
-	// Exponential
-	exponential, err := bn1.Exponential()
-	if err != nil {
-		fmt.Println("Error during exponential calculation:", err)
-	} else {
-		fmt.Println("Exponential of bn1:", exponential.String()) // Output: Exponential of bn1: 2.03e+459
-	}
-
-	// Absolute Value
-	absBn1 := bn1.AbsoluteValue()
-	fmt.Println("Absolute value of bn1:", absBn1.String()) // Output: Absolute value of bn1: 1234567890.12
-
-	// Rounding
-	roundedBn1 := bn1.Round(4)
-	fmt.Println("bn1 rounded to 4 decimals:", roundedBn1.String()) // Output: bn1 rounded to 4 decimals: 1234567890.1234
-	roundedBn2 := bn2.Round(4)
-	fmt.Println("bn2 rounded to 4 decimals:", roundedBn2.String()) // Output: bn2 rounded to 4 decimals: 9876543210.3456
-
-	// Banker's Rounding (RoundToEven)
-	bankersRoundedBn1 := bn1.Round(1)
-	fmt.Println("bn1 rounded to 1 decimal with Banker's rounding:", bankersRoundedBn1.String()) // Output: 1234567890.1
-	bankersRoundedBn2 := bn2.Round(1)
-	fmt.Println("bn2 rounded to 1 decimal with Banker's rounding:", bankersRoundedBn2.String()) // Output: 9876543210.3
-
-	// Scientific Notation
-	fmt.Println("bn1 in scientific notation:", bn1.ScientificNotation()) // Output: 1.23e+09
-	fmt.Println("bn2 in scientific notation:", bn2.ScientificNotation()) // Output: 9.88e+09
-
-	// Comparison
-	fmt.Println("bn1 == bn2:", bn1.Equal(bn2))          // Output: bn1 == bn2: false
-	fmt.Println("bn1 < bn2:", bn1.LessThan(bn2))       // Output: bn1 < bn2: true
-	fmt.Println("bn1 > bn2:", bn1.GreaterThan(bn2))   // Output: bn1 > bn2: false
-
-	// LessOrEqual and GreaterOrEqual
-	fmt.Println("bn1 <= bn2:", bn1.LessOrEqual(bn2)) // Output: bn1 <= bn2: true
-	fmt.Println("bn1 >= bn2:", bn1.GreaterOrEqual(bn2)) // Output: bn1 >= bn2: false
 }
