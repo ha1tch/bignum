@@ -551,7 +551,7 @@ func (bn *BigNumber) ScientificNotation() string {
 	bigFloat.SetInt(bn.value)
 
 	// Get scientific notation representation
-	scientificStr, _ := bigFloat.Text('e', -1) // scientificStr is of type string
+	scientificStr := bigFloat.Text('e', -1) // scientificStr is of type string
 
 	// Convert back to BigNumber (not necessary, but following the pattern)
 	sciBn, err := NewBigNumber(scientificStr, bn.precision, bn.rounding)
