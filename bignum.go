@@ -366,7 +366,8 @@ func (bn *BigNumber) SquareRoot() (*BigNumber, error) {
 // Sine calculates the sine of a BigNumber (assumes radians).
 func (bn *BigNumber) Sine() (*BigNumber, error) {
 	if bn.isInf || bn.isNan {
-		return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
+		//return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
+		return nil, fmt.Errorf("cannot perform Sine operation: value is Infinity or NaN")
 	}
 
 	// Use big.Float for more precise trigonometric calculations.
@@ -395,7 +396,7 @@ func (bn *BigNumber) Sine() (*BigNumber, error) {
 // Cosine calculates the cosine of a BigNumber (assumes radians).
 func (bn *BigNumber) Cosine() (*BigNumber, error) {
 	if bn.isInf || bn.isNan {
-		//return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
+		// return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
 		return nil, fmt.Errorf("cannot perform Cosine operation: value is Infinity or NaN")
 	}
 
@@ -452,8 +453,8 @@ func (bn *BigNumber) Tangent() (*BigNumber, error) {
 	return tangentBn, nil // Return the new BigNumber
 }
 
-// Logarithm calculates the natural logarithm (base e) of a BigNumber.
-func (bn *BigNumber) Logarithm() (*BigNumber, error) {
+// Log approximates the natural logarithm (base e) of a BigNumber using Newton's method.
+func (bn *BigNumber) Log() (*BigNumber, error) {
 	if bn.isInf || bn.isNan {
 		return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
 	} else if bn.IsZero() {
@@ -462,42 +463,81 @@ func (bn *BigNumber) Logarithm() (*BigNumber, error) {
 		return nil, BigNumberError{ErrorType: UndefinedOperationError, Message: "logarithm of a negative number is undefined"}
 	}
 
-	// Use big.Float for more precise logarithmic calculations.
-	bigFloat := new(big.Float)
-	bigFloat.SetFloat64(0)
-	bigFloat.SetInt(bn.value)
+	// Convert BigNumber to big.Int for calculations
+	xInt := new(big.Int).Set(bn.value)
 
-	// Calculate logarithm using math/big's Log function
-	logBigFloat, _ := big.Float.Log(bigFloat) // logBigFloat is of type *big.Float
+	// Start with an initial guess, e.g., y = 1.0 (for big.Int, we use 1)
+	yInt := big.NewInt(1)
+	deltaInt := big.NewInt(0)
+	thresholdInt := big.NewInt(1) // We'll use 1 as a simple threshold (can be adjusted)
 
-	// Convert back to BigNumber
-	logBn, err := NewBigNumber(logBigFloat.Text('g', -1), bn.precision, bn.rounding)
-	if err != nil {
-		return nil, err
+	// Calculate e using Taylor series (from Exp function)
+	expYInt, _ := bn.Exp()
+	expYInt.value = bn.applyRounding(expYInt.value)
+
+	for {
+		// deltaInt = (expYInt.value - xInt) / expYInt.value
+		deltaInt.Sub(expYInt.value, xInt)
+		deltaInt.Div(deltaInt, expYInt.value)
+
+		// yInt = yInt - deltaInt
+		yInt.Sub(yInt, deltaInt)
+
+		// Stop if deltaInt is smaller than thresholdInt (can be adjusted)
+		if deltaInt.Cmp(thresholdInt) < 0 {
+			break
+		}
+
+		// Recalculate expYInt for next iteration
+		expYInt, _ = bn.Exp()
+		expYInt.value = bn.applyRounding(expYInt.value)
 	}
-	return logBn, nil // Return the new BigNumber
+
+	// Create new BigNumber with the result and apply rounding
+	result, _ := NewBigNumber(yInt.String(), bn.precision, bn.rounding)
+	result.value = bn.applyRounding(result.value)
+
+	return result, nil
 }
 
-// Exponential calculates the exponential (base e) of a BigNumber.
-func (bn *BigNumber) Exponential() (*BigNumber, error) {
+// Exp approximates the exponential function (base e) of a BigNumber using Taylor series.
+func (bn *BigNumber) Exp() (*BigNumber, error) {
 	if bn.isInf || bn.isNan {
 		return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
 	}
 
-	// Use big.Float for more precise exponential calculations.
-	bigFloat := new(big.Float)
-	bigFloat.SetFloat64(0)
-	bigFloat.SetInt(bn.value)
+	// Convert BigNumber to big.Int for calculations
+	xInt := new(big.Int).Set(bn.value)
 
-	// Calculate exponential using math/big's Exp function
-	expBigFloat, _ := big.Float.Exp(bigFloat) // expBigFloat is of type *big.Float
+	// Calculate Taylor series approximation
+	resultInt := new(big.Int).SetInt64(1) // e^0 = 1
+	termInt := new(big.Int).SetInt64(1)   // Current term in series (starts at 1)
+	factorialInt := big.NewInt(1)         // Current factorial value
 
-	// Convert back to BigNumber
-	expBn, err := NewBigNumber(expBigFloat.Text('g', -1), bn.precision, bn.rounding)
-	if err != nil {
-		return nil, err
+	i := 1
+	for {
+		// termInt *= xInt / i
+		termInt.Mul(termInt, xInt)
+		termInt.Div(termInt, big.NewInt(int64(i)))
+
+		// resultInt += termInt
+		resultInt.Add(resultInt, termInt)
+
+		// Break if term is small enough to stop (close enough to precision)
+		if termInt.Cmp(big.NewInt(1)) < 0 {
+			break
+		}
+
+		// Update factorial for next iteration
+		factorialInt.Mul(factorialInt, big.NewInt(int64(i)))
+		i++
 	}
-	return expBn, nil // Return the new BigNumber
+
+	// Create new BigNumber with the result and apply rounding
+	result, _ := NewBigNumber(resultInt.String(), bn.precision, bn.rounding)
+	result.value = bn.applyRounding(result.value)
+
+	return result, nil
 }
 
 // AbsoluteValue returns the absolute value of a BigNumber.
