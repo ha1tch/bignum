@@ -130,6 +130,15 @@ func NewBigNumber(str string, precision uint, rounding RoundingMode) (*BigNumber
 	return bn, nil
 }
 
+// checkPrecision ensures that both BigNumbers have the same precision.
+func (bn *BigNumber) checkPrecision(other *BigNumber) error {
+	if bn.precision != other.precision {
+		return BigNumberError{ErrorType: PrecisionError, Message: fmt.Sprintf("cannot perform operation with BigNumbers of different precisions: %d != %d", bn.precision, other.precision)}
+	}
+	return nil
+}
+
+// checkSpecialCases checks for infinity and NaN in both BigNumbers and returns an error if found.
 func checkSpecialCases(bn, other *BigNumber) error {
 	if bn.isInf || other.isInf {
 		return BigNumberError{ErrorType: UndefinedOperationError, Message: "one of the BigNumbers is infinity"}
@@ -142,31 +151,13 @@ func checkSpecialCases(bn, other *BigNumber) error {
 	return nil
 }
 
-// checkPrecision ensures that both BigNumbers have the same precision.
-func (bn *BigNumber) checkPrecision(other *BigNumber) error {
-	if bn.precision != other.precision {
-		return BigNumberError{ErrorType: PrecisionError, Message: fmt.Sprintf("cannot perform operation with BigNumbers of different precisions: %d != %d", bn.precision, other.precision)}
-	}
-	return nil
-}
-
-// handleSpecialCases checks for infinity and NaN in both BigNumbers and returns an error if found.
-func handleSpecialCases(bn, other *BigNumber) error {
-	if bn.isInf || other.isInf {
-		return BigNumberError{ErrorType: UndefinedOperationError, Message: "one of the BigNumbers is infinity"}
-	} else if bn.isNan || other.isNan {
-		return BigNumberError{ErrorType: UndefinedOperationError, Message: "one of the BigNumbers is NaN"}
-	}
-	return nil
-}
-
 // checkOperands checks if two BigNumbers have the same precision and handles special cases (Infinity and NaN).
 func checkOperands(bn, other *BigNumber) error {
 	if err := bn.checkPrecision(other); err != nil {
 		return err
 	}
 
-	if err := handleSpecialCases(bn, other); err != nil {
+	if err := checkSpecialCases(bn, other); err != nil {
 		return err
 	}
 
@@ -175,7 +166,7 @@ func checkOperands(bn, other *BigNumber) error {
 
 // Add adds two BigNumbers and returns a new BigNumber.
 func (bn *BigNumber) Add(other *BigNumber) (*BigNumber, error) {
-	if err := checkOperands(bn, other); err != nil { // Use checkOperands
+	if err := checkOperands(bn, other); err != nil {
 		return nil, err
 	}
 
@@ -197,7 +188,7 @@ func (bn *BigNumber) Add(other *BigNumber) (*BigNumber, error) {
 
 // Subtract subtracts two BigNumbers and returns a new BigNumber.
 func (bn *BigNumber) Subtract(other *BigNumber) (*BigNumber, error) {
-	if err := checkOperands(bn, other); err != nil { // Use checkOperands
+	if err := checkOperands(bn, other); err != nil {
 		return nil, err
 	}
 
@@ -219,7 +210,7 @@ func (bn *BigNumber) Subtract(other *BigNumber) (*BigNumber, error) {
 
 // Multiply multiplies two BigNumbers and returns a new BigNumber.
 func (bn *BigNumber) Multiply(other *BigNumber) (*BigNumber, error) {
-	if err := checkOperands(bn, other); err != nil { // Use checkOperands
+	if err := checkOperands(bn, other); err != nil {
 		return nil, err
 	}
 
@@ -245,7 +236,7 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 		return nil, err
 	}
 
-	if err := checkSpecialCases(bn, other); err != nil { // Use checkSpecialCases
+	if err := checkSpecialCases(bn, other); err != nil {
 		return nil, err
 	}
 
@@ -271,7 +262,7 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 
 	// Rounding after division
 	quotient.value = new(big.Int).Sub(quotient.positive, quotient.negative) // Calculate the value
-	quotient.value = bn.applyRounding(quotient.value)                       // Apply rounding
+	quotient.value = bn.applyRounding(quotient.value)                     // Apply rounding
 
 	// Re-evaluate sign at the end
 	if quotient.positive.Cmp(quotient.negative) < 0 {
@@ -291,7 +282,7 @@ func (bn *BigNumber) Modulo(other *BigNumber) (*BigNumber, error) {
 		return nil, err
 	}
 
-	if err := checkSpecialCases(bn, other); err != nil { // Use checkSpecialCases
+	if err := checkSpecialCases(bn, other); err != nil {
 		return nil, err
 	}
 
@@ -378,16 +369,28 @@ func (bn *BigNumber) Sine() (*BigNumber, error) {
 		return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
 	}
 
+	// **Check for potential loss of precision during conversion:**
+	if bigFloat.IsInf() || bigFloat.IsNan() {
+		return nil, fmt.Errorf("cannot perform Sine operation: value is Infinity or NaN")
+	}
+
 	// Use big.Float for more precise trigonometric calculations.
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
 
-	// Calculate sine
-	sineBigFloat, _ := bigFloat.Sin(bigFloat) // sineBigFloat is of type *big.Float
+	// Convert to float64 for math.Sin, but check for errors
+	floatVal, accuracy := bigFloat.Float64()
+	if accuracy != big.Exact { // **Check for accuracy:**
+		return nil, fmt.Errorf("cannot perform Sine operation: loss of precision during conversion to float64")
+	}
+	sine := math.Sin(floatVal) // Calculate sine using math.Sin
+
+	// Convert back to *big.Float
+	bigFloat.SetFloat64(sine)
 
 	// Convert back to BigNumber
-	sineBn, err := NewBigNumber(sineBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	sineBn, err := NewBigNumber(bigFloat.Text('g', -1), bn.precision, bn.rounding)
 	if err != nil {
 		return nil, err
 	}
@@ -405,11 +408,23 @@ func (bn *BigNumber) Cosine() (*BigNumber, error) {
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
 
-	// Calculate cosine
-	cosineBigFloat, _ := bigFloat.Cos(bigFloat) // cosineBigFloat is of type *big.Float
+	// **Check for potential loss of precision during conversion:**
+	if bigFloat.IsInf() || bigFloat.IsNan() {
+		return nil, fmt.Errorf("cannot perform Cosine operation: value is Infinity or NaN")
+	}
+
+	// Convert to float64 for math.Cos, but check for errors
+	floatVal, accuracy := bigFloat.Float64()
+	if accuracy != big.Exact { // **Check for accuracy:**
+		return nil, fmt.Errorf("cannot perform Cosine operation: loss of precision during conversion to float64")
+	}
+	cosine := math.Cos(floatVal) // Calculate cosine using math.Cos
+
+	// Convert back to *big.Float
+	bigFloat.SetFloat64(cosine)
 
 	// Convert back to BigNumber
-	cosineBn, err := NewBigNumber(cosineBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	cosineBn, err := NewBigNumber(bigFloat.Text('g', -1), bn.precision, bn.rounding)
 	if err != nil {
 		return nil, err
 	}
@@ -427,11 +442,23 @@ func (bn *BigNumber) Tangent() (*BigNumber, error) {
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
 
-	// Calculate tangent
-	tangentBigFloat, _ := bigFloat.Tan(bigFloat) // tangentBigFloat is of type *big.Float
+	// **Check for potential loss of precision during conversion:**
+	if bigFloat.IsInf() || bigFloat.IsNan() {
+		return nil, fmt.Errorf("cannot perform Tangent operation: value is Infinity or NaN")
+	}
+
+	// Convert to float64 for math.Tan, but check for errors
+	floatVal, accuracy := bigFloat.Float64()
+	if accuracy != big.Exact { // **Check for accuracy:**
+		return nil, fmt.Errorf("cannot perform Tangent operation: loss of precision during conversion to float64")
+	}
+	tangent := math.Tan(floatVal) // Calculate tangent using math.Tan
+
+	// Convert back to *big.Float
+	bigFloat.SetFloat64(tangent)
 
 	// Convert back to BigNumber
-	tangentBn, err := NewBigNumber(tangentBigFloat.Text('g', -1), bn.precision, bn.rounding)
+	tangentBn, err := NewBigNumber(bigFloat.Text('g', -1), bn.precision, bn.rounding)
 	if err != nil {
 		return nil, err
 	}
@@ -453,8 +480,8 @@ func (bn *BigNumber) Logarithm() (*BigNumber, error) {
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
 
-	// Calculate logarithm
-	logBigFloat, _ := bigFloat.Log(bigFloat) // logBigFloat is of type *big.Float
+	// Calculate logarithm using math/big's Log function
+	logBigFloat, _ := big.Float.Log(bigFloat) // logBigFloat is of type *big.Float
 
 	// Convert back to BigNumber
 	logBn, err := NewBigNumber(logBigFloat.Text('g', -1), bn.precision, bn.rounding)
@@ -475,8 +502,8 @@ func (bn *BigNumber) Exponential() (*BigNumber, error) {
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
 
-	// Calculate exponential
-	expBigFloat, _ := bigFloat.Exp(bigFloat) // expBigFloat is of type *big.Float
+	// Calculate exponential using math/big's Exp function
+	expBigFloat, _ := big.Float.Exp(bigFloat) // expBigFloat is of type *big.Float
 
 	// Convert back to BigNumber
 	expBn, err := NewBigNumber(expBigFloat.Text('g', -1), bn.precision, bn.rounding)
