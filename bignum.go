@@ -130,6 +130,18 @@ func NewBigNumber(str string, precision uint, rounding RoundingMode) (*BigNumber
 	return bn, nil
 }
 
+func checkSpecialCases(bn, other *BigNumber) error {
+	if bn.isInf || other.isInf {
+		return BigNumberError{ErrorType: UndefinedOperationError, Message: "one of the BigNumbers is infinity"}
+	} else if bn.isNan || other.isNan {
+		return BigNumberError{ErrorType: UndefinedOperationError, Message: "one of the BigNumbers is NaN"}
+	} else if bn.IsZero() && other.IsZero() {
+		// Both BigNumbers are zero, return an error as appropriate (e.g., for division)
+		return BigNumberError{ErrorType: UndefinedOperationError, Message: "cannot perform operation with both BigNumbers being zero"}
+	}
+	return nil
+}
+
 // checkPrecision ensures that both BigNumbers have the same precision.
 func (bn *BigNumber) checkPrecision(other *BigNumber) error {
 	if bn.precision != other.precision {
@@ -138,8 +150,8 @@ func (bn *BigNumber) checkPrecision(other *BigNumber) error {
 	return nil
 }
 
-// checkSpecialCases checks for infinity and NaN in both BigNumbers.
-func (bn *BigNumber) checkSpecialCases(other *BigNumber) error {
+// handleSpecialCases checks for infinity and NaN in both BigNumbers and returns an error if found.
+func handleSpecialCases(bn, other *BigNumber) error {
 	if bn.isInf || other.isInf {
 		return BigNumberError{ErrorType: UndefinedOperationError, Message: "one of the BigNumbers is infinity"}
 	} else if bn.isNan || other.isNan {
@@ -148,13 +160,22 @@ func (bn *BigNumber) checkSpecialCases(other *BigNumber) error {
 	return nil
 }
 
-// Add adds two BigNumbers and returns a new BigNumber.
-func (bn *BigNumber) Add(other *BigNumber) (*BigNumber, error) {
+// checkOperands checks if two BigNumbers have the same precision and handles special cases (Infinity and NaN).
+func checkOperands(bn, other *BigNumber) error {
 	if err := bn.checkPrecision(other); err != nil {
-		return nil, err
+		return err
 	}
 
-	if err := bn.checkSpecialCases(other); err != nil {
+	if err := handleSpecialCases(bn, other); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Add adds two BigNumbers and returns a new BigNumber.
+func (bn *BigNumber) Add(other *BigNumber) (*BigNumber, error) {
+	if err := checkOperands(bn, other); err != nil { // Use checkOperands
 		return nil, err
 	}
 
@@ -176,11 +197,7 @@ func (bn *BigNumber) Add(other *BigNumber) (*BigNumber, error) {
 
 // Subtract subtracts two BigNumbers and returns a new BigNumber.
 func (bn *BigNumber) Subtract(other *BigNumber) (*BigNumber, error) {
-	if err := bn.checkPrecision(other); err != nil {
-		return nil, err
-	}
-
-	if err := bn.checkSpecialCases(other); err != nil {
+	if err := checkOperands(bn, other); err != nil { // Use checkOperands
 		return nil, err
 	}
 
@@ -202,11 +219,7 @@ func (bn *BigNumber) Subtract(other *BigNumber) (*BigNumber, error) {
 
 // Multiply multiplies two BigNumbers and returns a new BigNumber.
 func (bn *BigNumber) Multiply(other *BigNumber) (*BigNumber, error) {
-	if err := bn.checkPrecision(other); err != nil {
-		return nil, err
-	}
-
-	if err := bn.checkSpecialCases(other); err != nil {
+	if err := checkOperands(bn, other); err != nil { // Use checkOperands
 		return nil, err
 	}
 
@@ -232,7 +245,7 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 		return nil, err
 	}
 
-	if err := bn.checkSpecialCases(other); err != nil {
+	if err := checkSpecialCases(bn, other); err != nil { // Use checkSpecialCases
 		return nil, err
 	}
 
@@ -258,7 +271,7 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 
 	// Rounding after division
 	quotient.value = new(big.Int).Sub(quotient.positive, quotient.negative) // Calculate the value
-	quotient.value = bn.applyRounding(quotient.value)                     // Apply rounding
+	quotient.value = bn.applyRounding(quotient.value)                       // Apply rounding
 
 	// Re-evaluate sign at the end
 	if quotient.positive.Cmp(quotient.negative) < 0 {
@@ -278,7 +291,7 @@ func (bn *BigNumber) Modulo(other *BigNumber) (*BigNumber, error) {
 		return nil, err
 	}
 
-	if err := bn.checkSpecialCases(other); err != nil {
+	if err := checkSpecialCases(bn, other); err != nil { // Use checkSpecialCases
 		return nil, err
 	}
 
