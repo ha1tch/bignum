@@ -159,22 +159,17 @@ func (bn *BigNumber) Add(other *BigNumber) (*BigNumber, error) {
 	}
 
 	result := &BigNumber{precision: bn.precision, rounding: bn.rounding}
-	result.positive = new(big.Int).Add(bn.positive, other.positive)
-	result.negative = new(big.Int).Add(bn.negative, other.negative)
+	result.positive = new(big.Int).Set(bn.positive) // Copying positive part
+	result.negative = new(big.Int).Set(bn.negative) // Copying negative part
 
-	// Check for overflow
-	if result.positive.Cmp(bn.positive) < 0 || result.negative.Cmp(bn.negative) < 0 {
-		return nil, BigNumberError{ErrorType: OverflowError, Message: "addition operation resulted in overflow"}
-	}
+	result.positive.Add(result.positive, other.positive)
+	result.negative.Add(result.negative, other.negative)
 
-	// Re-evaluate sign at the end
-	if result.positive.Cmp(result.negative) < 0 {
-		// If negative part is larger, swap
-		result.positive, result.negative = result.negative, result.positive
-	}
-
-	// Update the 'value' field based on the sign
+	// Update the value
 	result.value = new(big.Int).Sub(result.positive, result.negative)
+
+	// Apply rounding
+	result.value = bn.applyRounding(result.value)
 
 	return result, nil
 }
@@ -190,22 +185,17 @@ func (bn *BigNumber) Subtract(other *BigNumber) (*BigNumber, error) {
 	}
 
 	result := &BigNumber{precision: bn.precision, rounding: bn.rounding}
-	result.positive = new(big.Int).Sub(bn.positive, other.positive)
-	result.negative = new(big.Int).Sub(bn.negative, other.negative)
+	result.positive = new(big.Int).Set(bn.positive) // Copying positive part
+	result.negative = new(big.Int).Set(bn.negative) // Copying negative part
 
-	// Check for overflow
-	if result.positive.Cmp(bn.positive) < 0 || result.negative.Cmp(bn.negative) < 0 {
-		return nil, BigNumberError{ErrorType: OverflowError, Message: "subtraction operation resulted in overflow"}
-	}
+	result.positive.Sub(result.positive, other.positive)
+	result.negative.Sub(result.negative, other.negative)
 
-	// Re-evaluate sign at the end
-	if result.positive.Cmp(result.negative) < 0 {
-		// If negative part is larger, swap
-		result.positive, result.negative = result.negative, result.positive
-	}
-
-	// Update the 'value' field based on the sign
+	// Update the value
 	result.value = new(big.Int).Sub(result.positive, result.negative)
+
+	// Apply rounding
+	result.value = bn.applyRounding(result.value)
 
 	return result, nil
 }
@@ -221,22 +211,17 @@ func (bn *BigNumber) Multiply(other *BigNumber) (*BigNumber, error) {
 	}
 
 	result := &BigNumber{precision: bn.precision + other.precision, rounding: bn.rounding}
-	result.positive = new(big.Int).Mul(bn.positive, other.positive)
-	result.negative = new(big.Int).Mul(bn.negative, other.negative)
+	result.positive = new(big.Int).Set(bn.positive) // Copying positive part
+	result.negative = new(big.Int).Set(bn.negative) // Copying negative part
 
-	// Check for overflow
-	if result.positive.Cmp(bn.positive) < 0 || result.negative.Cmp(bn.negative) < 0 {
-		return nil, BigNumberError{ErrorType: OverflowError, Message: "multiplication operation resulted in overflow"}
-	}
+	result.positive.Mul(result.positive, other.positive)
+	result.negative.Mul(result.negative, other.negative)
 
-	// Re-evaluate sign at the end
-	if result.positive.Cmp(result.negative) < 0 {
-		// If negative part is larger, swap
-		result.positive, result.negative = result.negative, result.positive
-	}
-
-	// Update the 'value' field based on the sign
+	// Update the value
 	result.value = new(big.Int).Sub(result.positive, result.negative)
+
+	// Apply rounding
+	result.value = bn.applyRounding(result.value)
 
 	return result, nil
 }
@@ -256,7 +241,7 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 	}
 
 	// Scale for precision
-	scaleFactor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(bn.precision)), nil)
+	scaleFactor := bn.scaleForPrecision()
 	scaledDividendPositive := new(big.Int).Mul(bn.positive, scaleFactor)
 	scaledDividendNegative := new(big.Int).Mul(bn.negative, scaleFactor)
 	scaledDivisorPositive := new(big.Int).Mul(other.positive, scaleFactor)
@@ -272,10 +257,8 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 	quotient.negative = quotientNegative
 
 	// Rounding after division
-	quotient, err := bn.applyRounding(bn.precision)
-	if err != nil {
-		return nil, err
-	}
+	quotient.value = new(big.Int).Sub(quotient.positive, quotient.negative) // Calculate the value
+	quotient.value = bn.applyRounding(quotient.value)                     // Apply rounding
 
 	// Re-evaluate sign at the end
 	if quotient.positive.Cmp(quotient.negative) < 0 {
@@ -304,7 +287,7 @@ func (bn *BigNumber) Modulo(other *BigNumber) (*BigNumber, error) {
 	}
 
 	// Scale for precision
-	scaleFactor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(bn.precision)), nil)
+	scaleFactor := bn.scaleForPrecision()
 	scaledDividendPositive := new(big.Int).Mul(bn.positive, scaleFactor)
 	scaledDividendNegative := new(big.Int).Mul(bn.negative, scaleFactor)
 	scaledDivisorPositive := new(big.Int).Mul(other.positive, scaleFactor)
@@ -626,41 +609,32 @@ func (bn *BigNumber) GreaterOrEqual(other *BigNumber) bool {
 }
 
 // applyRounding applies rounding to a BigNumber based on the specified rounding mode and precision.
-func (bn *BigNumber) applyRounding(precision uint) (*BigNumber, error) {
-	if precision == bn.precision {
-		return bn, nil
-	}
-	result := &BigNumber{precision: precision, rounding: bn.rounding}
-
-	scaleFactor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(precision)), nil)
-	scaledValue := new(big.Int).Mul(bn.value, scaleFactor)
-
+func (bn *BigNumber) applyRounding(value *big.Int) *big.Int {
+	// Rounding logic based on rounding mode
 	switch bn.rounding {
-	case RoundUp:
-		// Round up: Add 1 to the scaled value and divide by the scale factor.
-		scaledValue.Add(scaledValue, big.NewInt(1))
-		result.value = new(big.Int).Div(scaledValue, scaleFactor)
-	case RoundDown:
-		// Round down: Divide the scaled value by the scale factor.
-		result.value = new(big.Int).Div(scaledValue, scaleFactor)
 	case RoundToNearest:
 		// Round to nearest: Add half the scale factor to the scaled value and divide by the scale factor.
-		halfScaleFactor := new(big.Int).Div(scaleFactor, big.NewInt(2))
-		scaledValue.Add(scaledValue, halfScaleFactor)
-		result.value = new(big.Int).Div(scaledValue, scaleFactor)
+		halfScaleFactor := new(big.Int).Div(bn.scaleForPrecision(), big.NewInt(2))
+		value.Add(value, halfScaleFactor)
+		value.Div(value, bn.scaleForPrecision())
 	case RoundToEven:
 		// Banker's Rounding: Round to the nearest even digit
-		halfScaleFactor := new(big.Int).Div(scaleFactor, big.NewInt(2))
-		scaledValue.Add(scaledValue, halfScaleFactor)
-		result.value = new(big.Int).Div(scaledValue, scaleFactor)
+		halfScaleFactor := new(big.Int).Div(bn.scaleForPrecision(), big.NewInt(2))
+		value.Add(value, halfScaleFactor)
+		value.Div(value, bn.scaleForPrecision())
 		// If the last digit is 5 and the previous digit is odd, round up.
-		if scaledValue.Mod(scaledValue, big.NewInt(10)).Cmp(big.NewInt(5)) == 0 &&
-			scaledValue.Div(scaledValue, big.NewInt(10)).Mod(scaledValue, big.NewInt(2)).Cmp(big.NewInt(1)) == 0 {
-			result.value.Add(result.value, big.NewInt(1))
+		if value.Mod(value, big.NewInt(10)).Cmp(big.NewInt(5)) == 0 &&
+			value.Div(value, big.NewInt(10)).Mod(value, big.NewInt(2)).Cmp(big.NewInt(1)) == 0 {
+			value.Add(value, big.NewInt(1))
 		}
 	}
 
-	return result, nil
+	return value
+}
+
+// scaleForPrecision returns a big.Int representing the scale factor for the specified precision.
+func (bn *BigNumber) scaleForPrecision() *big.Int {
+	return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(bn.precision)), nil)
 }
 
 // Round rounds the BigNumber to the specified precision using the specified rounding mode.
@@ -669,10 +643,11 @@ func (bn *BigNumber) Round(precision uint) *BigNumber {
 		return bn
 	}
 
-	result, err := bn.applyRounding(precision)
-	if err != nil {
-		return nil // Handle error as appropriate
-	}
+	result := &BigNumber{precision: precision, rounding: bn.rounding}
+	result.value = new(big.Int).Set(bn.value) // Copy the value
+
+	// Apply rounding to the copied value
+	result.value = bn.applyRounding(result.value)
 
 	return result
 }
