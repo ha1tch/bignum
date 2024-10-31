@@ -1,4 +1,5 @@
-# bignum: Arbitrary Precision Fixed-Point Arithmetic in Go
+# bignum
+## Arbitrary Precision Fixed-Point Arithmetic in Go
 
 This Go package provides a `BigNumber` type that allows you to work with arbitrary precision numbers with fixed-point arithmetic. It supports a variety of operations, including:
 
@@ -39,7 +40,7 @@ func main() {
 ## Installation
 
 ```bash
-go get github.com/yourusername/bignum
+go get github.com/ha1tch/bignum
 ```
 
 ## Example
