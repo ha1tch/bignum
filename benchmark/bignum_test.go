@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	// Set these based on your system's capabilities and desired test range
-	maxIntegerDigits = 9 // Maximum number of integer digits to test
-	maxDecimalDigits = 9 // Maximum number of decimal digits to test
+	maxIntegerDigits = 48 // Maximum number of integer digits to test
+	maxDecimalDigits = 48 // Maximum number of decimal digits to test
 )
 
 // Generate a random number with the given integer and decimal digits.

@@ -44,7 +44,7 @@ type BigNumberError struct {
 }
 
 func (e BigNumberError) Error() string {
-	return fmt.Sprintf("BigNumber error: %s (%s)", e.Message, e.ErrorType)
+	return fmt.Sprintf("BigNumber error: %s (%d)", e.Message, e.ErrorType)
 }
 
 // BigNumber represents a large integer with fixed-point arithmetic.
@@ -65,9 +65,13 @@ func NewBigNumber(str string, precision uint, rounding RoundingMode) (*BigNumber
 	// Handle special cases: Infinity and NaN
 	if strings.ToLower(str) == "inf" {
 		bn.isInf = true
+		// Set value to a large positive integer for Infinity
+		bn.value = new(big.Int).SetInt64(math.MaxInt64)
 		return bn, nil
 	} else if strings.ToLower(str) == "nan" {
 		bn.isNan = true
+		// Set value to a specific integer for NaN (e.g., -1)
+		bn.value = big.NewInt(-1)
 		return bn, nil
 	}
 
@@ -124,7 +128,7 @@ func NewBigNumber(str string, precision uint, rounding RoundingMode) (*BigNumber
 		bn.positive = decimalBigInt
 	}
 
-	// Combine positive and negative parts with the sign.
+	// **Crucial Change:** Set the value field correctly, respecting the sign
 	bn.value = new(big.Int).Sub(bn.positive, bn.negative)
 
 	return bn, nil
@@ -543,7 +547,13 @@ func (bn *BigNumber) Exp() (*BigNumber, error) {
 // AbsoluteValue returns the absolute value of a BigNumber.
 func (bn *BigNumber) AbsoluteValue() *BigNumber {
 	result := &BigNumber{precision: bn.precision, rounding: bn.rounding}
-	if bn.value.Sign() < 0 {
+	if bn.isInf {
+		// If the number is infinity, return the original BigNumber
+		return bn
+	} else if bn.isNan {
+		// If the number is NaN, return the original BigNumber
+		return bn
+	} else if bn.value.Sign() < 0 {
 		result.value = new(big.Int).Neg(bn.value)
 	} else {
 		result.value = new(big.Int).Set(bn.value)
