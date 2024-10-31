@@ -262,7 +262,7 @@ func (bn *BigNumber) Divide(other *BigNumber) (*BigNumber, error) {
 
 	// Rounding after division
 	quotient.value = new(big.Int).Sub(quotient.positive, quotient.negative) // Calculate the value
-	quotient.value = bn.applyRounding(quotient.value)                     // Apply rounding
+	quotient.value = bn.applyRounding(quotient.value)                       // Apply rounding
 
 	// Re-evaluate sign at the end
 	if quotient.positive.Cmp(quotient.negative) < 0 {
@@ -369,11 +369,6 @@ func (bn *BigNumber) Sine() (*BigNumber, error) {
 		return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
 	}
 
-	// **Check for potential loss of precision during conversion:**
-	if bigFloat.IsInf() || bigFloat.IsNan() {
-		return nil, fmt.Errorf("cannot perform Sine operation: value is Infinity or NaN")
-	}
-
 	// Use big.Float for more precise trigonometric calculations.
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
@@ -400,18 +395,14 @@ func (bn *BigNumber) Sine() (*BigNumber, error) {
 // Cosine calculates the cosine of a BigNumber (assumes radians).
 func (bn *BigNumber) Cosine() (*BigNumber, error) {
 	if bn.isInf || bn.isNan {
-		return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
+		//return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
+		return nil, fmt.Errorf("cannot perform Cosine operation: value is Infinity or NaN")
 	}
 
 	// Use big.Float for more precise trigonometric calculations.
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
-
-	// **Check for potential loss of precision during conversion:**
-	if bigFloat.IsInf() || bigFloat.IsNan() {
-		return nil, fmt.Errorf("cannot perform Cosine operation: value is Infinity or NaN")
-	}
 
 	// Convert to float64 for math.Cos, but check for errors
 	floatVal, accuracy := bigFloat.Float64()
@@ -434,18 +425,14 @@ func (bn *BigNumber) Cosine() (*BigNumber, error) {
 // Tangent calculates the tangent of a BigNumber (assumes radians).
 func (bn *BigNumber) Tangent() (*BigNumber, error) {
 	if bn.isInf || bn.isNan {
-		return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
+		// return &BigNumber{precision: bn.precision, rounding: bn.rounding, isNan: true}, nil
+		return nil, fmt.Errorf("cannot perform Tangent operation: value is Infinity or NaN")
 	}
 
 	// Use big.Float for more precise trigonometric calculations.
 	bigFloat := new(big.Float)
 	bigFloat.SetFloat64(0)
 	bigFloat.SetInt(bn.value)
-
-	// **Check for potential loss of precision during conversion:**
-	if bigFloat.IsInf() || bigFloat.IsNan() {
-		return nil, fmt.Errorf("cannot perform Tangent operation: value is Infinity or NaN")
-	}
 
 	// Convert to float64 for math.Tan, but check for errors
 	floatVal, accuracy := bigFloat.Float64()
